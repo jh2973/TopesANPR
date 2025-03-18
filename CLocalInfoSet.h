@@ -25,6 +25,7 @@ public:
 	int		nImageWidth;
 	int		nImageHeight;
 	int		nTestMode;
+	int		nPlateAngle;
 	char	cOriginPath[128];
 	char	cDestPath[128];
 	char	cExceptionPath[128];

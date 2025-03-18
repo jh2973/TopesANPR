@@ -34,13 +34,17 @@ private:
 
 	char	currentDirectory[128], readFileName[128], fullFilePath_Ori[128], fullFilePath_Dest[128], fullFilePath_Exception[128];
 
+	int temp_idx;
+
 
 public:
 	void	Anpr_Proc_Normal();
 	void	Anpr_Proc_Inspection();
+	void	CalculAngle(std::vector<KIST_res>* outputs);
 	BOOL	LoadDataFile_NEW(CString strFileName_Ori, CString strFileName_Dest, CString strFileName_Exception);
 	void	OLD_Plate_Init(int index);
 	BOOL	LoadDataFile_OLD(CString strFileName_Ori, CString strFileName_Dest, CString strFileName_Exception);
+	BITMAP	GetBitMap(cv::Mat inputImage);
 	void	CreateBitmapInfo(int w, int h, int bpp);
 	void	conv_color2grayOne(BYTE* orgBuf, BYTE* ConvBuf, int w, int h);
 	long	SizeConv(char* ImageSize);
@@ -65,7 +69,7 @@ public:
 	float conf_thres3 = 0.65f;
 	float conf_thres4 = 0.60f;
 
-	int	nPassCount, nFailCount;
+	int	nTotalCount, nPassCount, nFailCount;
 
 	int find_CorrectBike(cv::Rect plate_box, std::vector<Detection> bikes, cv::Point top_left);
 	std::vector<KIST_res> KIST_Detection(PLATEDetector* detector0, PLATEDetector* detector1, PLATEDetector* detector2, PLATEDetector* detector3, PLATEDetector* detector4, cv::Point top_left, cv::Point bot_right,

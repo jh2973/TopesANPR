@@ -28,6 +28,7 @@ void CKistAnprAppDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, BTN_START, m_btn_start);
 	DDX_Control(pDX, BTN_STOP, m_btn_stop);
 	DDX_Control(pDX, COMBO_ANPR_TYPE, m_ANPR_Type);
+	DDX_Control(pDX, IDC_PROGRESS1, m_Progress);
 }
 
 
@@ -74,24 +75,27 @@ BOOL CKistAnprAppDlg::OnInitDialog()
 	m_combo_protocol.SetCurSel(m_pEnforceSet->nProtocolType - 1);
 
 	//Mode
-	m_combo_mode.AddString("Local Mode");
-	m_combo_mode.AddString("Center Mode");
-	m_combo_mode.AddString("Inspection Mode");
+	m_combo_mode.AddString("제어기 모드");
+	m_combo_mode.AddString("센터 모드");
+	m_combo_mode.AddString("정기검사/인수검사");
 	m_combo_mode.SetCurSel(m_pEnforceSet->nMode - 1);
 
 	//ANPR Type
-	m_ANPR_Type.AddString("Old ANPR");
-	m_ANPR_Type.AddString("New ANPR");
-	m_ANPR_Type.SetCurSel(m_pEnforceSet->nANPRType - 1);
+	//m_ANPR_Type.AddString("기존 ANPR");
+	m_ANPR_Type.AddString("신규 ANPR");
+	m_ANPR_Type.SetCurSel(0);
+	//m_ANPR_Type.SetCurSel(m_pEnforceSet->nANPRType - 1);
 
 	//폴더 생성
-	CreateDirectory(m_pEnforceSet->cOriginPath, NULL);
 	CreateDirectory(m_pEnforceSet->cDestPath, NULL);
 	CreateDirectory(m_pEnforceSet->cExceptionPath, NULL);
-	CreateDirectory(m_pEnforceSet->cLogFilePath, NULL);
 
 	m_btn_start.EnableWindow(TRUE);
 	m_btn_stop.EnableWindow(FALSE);
+
+	thread_InspectionMode_Threading = FALSE;
+	m_Progress.SetRange(0, 100);
+	nPgsValue = 0;
 
 	//Init
 	m_pKistAnprClass->OLD_Plate_Init(0);
@@ -103,6 +107,7 @@ BOOL CKistAnprAppDlg::OnInitDialog()
 	}
 
 	bIsFirst = FALSE;
+	bProgressIng = FALSE;
 
 	return TRUE;  // 포커스를 컨트롤에 설정하지 않으면 TRUE를 반환합니다.
 }
@@ -159,10 +164,14 @@ void CKistAnprAppDlg::OnTimer(UINT_PTR nIDEvent)
 			bIsFirst = TRUE;
 		}
 
-		if(m_pEnforceSet->nMode == 1 || m_pEnforceSet->nMode == 2)	
-			m_pKistAnprClass->Anpr_Proc_Normal();		//로컬모드 or 센터모드
-		else
-			m_pKistAnprClass->Anpr_Proc_Inspection();	//검사모드
+		if (m_pEnforceSet->nMode == 1 || m_pEnforceSet->nMode == 2)
+		{
+			//로컬모드 or 센터모드
+			CreateDirectory(m_pEnforceSet->cDestPath, NULL);
+			CreateDirectory(m_pEnforceSet->cExceptionPath, NULL);
+
+			m_pKistAnprClass->Anpr_Proc_Normal();
+		}
 
 		char	cResultPass[8], cResultFail[8];
 		wsprintf(cResultPass, "%d대", m_pKistAnprClass->nPassCount);
@@ -171,10 +180,55 @@ void CKistAnprAppDlg::OnTimer(UINT_PTR nIDEvent)
 		((CButton*)GetDlgItem(EDIT_PASS_CNT))->SetWindowText(cResultPass);
 		((CButton*)GetDlgItem(EDIT_FAIL_CNT))->SetWindowText(cResultFail);
 	}		
+	else if (nIDEvent == 2)
+	{
+		if (m_pEnforceSet->nMode == 1 || m_pEnforceSet->nMode == 2)
+		{
+			nPgsValue += 10;
+			if (nPgsValue == 100)
+				nPgsValue = 0;
+			m_Progress.SetPos(nPgsValue);
+		}
+		else if (m_pEnforceSet->nMode == 3)
+		{
+			if (bProgressIng == FALSE && m_pKistAnprClass->nTotalCount != 0)
+			{
+				m_Progress.SetRange(0, m_pKistAnprClass->nTotalCount);
+				bProgressIng = TRUE;
+			}
+			m_Progress.SetPos(m_pKistAnprClass->nPassCount + m_pKistAnprClass->nFailCount);
+
+			if (bProgressIng == TRUE && m_pKistAnprClass->nTotalCount == 0)
+			{
+				bProgressIng = FALSE;
+				MessageBox(_T("모든 파일의 처리가 완료 되었습니다."), _T("TopesANPR"), MB_ICONINFORMATION);
+			}
+		}
+		
+	}
 
 	CDialogEx::OnTimer(nIDEvent);
 }
 
+UINT CKistAnprAppDlg::thread_InspectionMode(LPVOID _mothod) {
+
+	CKistAnprAppDlg* pDlg = (CKistAnprAppDlg*)_mothod;
+	OutputDebugString("thread_InspectionMode : 쓰레드 생성 성공");
+
+	pDlg->thread_InspectionMode_Threading = TRUE;
+	pDlg->Retry_InspectionMode();
+
+	OutputDebugString("thread_InspectionMode : 쓰레드 종료 성공");
+	return 0;
+}
+
+void CKistAnprAppDlg::Retry_InspectionMode()
+{
+	while (thread_InspectionMode_Threading)
+	{
+		m_pKistAnprClass->Anpr_Proc_Inspection();
+	}
+}
 
 void CKistAnprAppDlg::WriteLogMessage(char* pLogData)
 {
@@ -301,6 +355,7 @@ void CKistAnprAppDlg::OnBnClickedStart()
 	// TODO: 여기에 컨트롤 알림 처리기 코드를 추가합니다.
 
 	SetTimer(1, 1000, NULL);
+	SetTimer(2, 100, NULL);
 
 	m_btn_start.EnableWindow(FALSE);
 	m_btn_stop.EnableWindow(TRUE);
@@ -314,6 +369,16 @@ void CKistAnprAppDlg::OnBnClickedStart()
 
 	m_pEnforceSet->nAutoStart = 1;
 	m_pEnforceSet->SaveLocalInfo();
+
+	m_Progress.SetRange(0, 100);
+	bProgressIng = FALSE;
+
+	SetTimer(2, 100, NULL);
+
+	if (ptrTrhead0 != NULL)
+		::SuspendThread(ptrTrhead0);
+	ptrTrhead0 = NULL;
+	ptrTrhead0 = AfxBeginThread(thread_InspectionMode, this, THREAD_PRIORITY_HIGHEST);
 }
 
 
@@ -336,20 +401,28 @@ void CKistAnprAppDlg::OnBnClickedStop()
 
 	m_pEnforceSet->nAutoStart = 0;
 	m_pEnforceSet->SaveLocalInfo();
+
+	thread_InspectionMode_Threading = FALSE;
+
+	if (ptrTrhead0 != NULL)
+		::SuspendThread(ptrTrhead0);
+
+	KillTimer(2);
+	m_Progress.SetPos(0);
 }
 
 
 void CKistAnprAppDlg::OnSelchangeComboAnprType()
 {
 	// TODO: 여기에 컨트롤 알림 처리기 코드를 추가합니다.
-	m_pEnforceSet->nANPRType = ((CComboBox*)GetDlgItem(COMBO_ANPR_TYPE))->GetCurSel() + 1;
+	//m_pEnforceSet->nANPRType = ((CComboBox*)GetDlgItem(COMBO_ANPR_TYPE))->GetCurSel() + 1;
 }
 
 
 void CKistAnprAppDlg::SaveSettings()
 {
 	m_pEnforceSet->nProtocolType = ((CComboBox*)GetDlgItem(COMBO_PROTOCOL))->GetCurSel() + 1;
-	m_pEnforceSet->nANPRType = ((CComboBox*)GetDlgItem(COMBO_ANPR_TYPE))->GetCurSel() + 1;
+	//m_pEnforceSet->nANPRType = ((CComboBox*)GetDlgItem(COMBO_ANPR_TYPE))->GetCurSel() + 1;
 
 	GetDlgItem(EDIT_PATH_ORIGIN)->GetWindowText((LPSTR)m_pEnforceSet->cOriginPath, 128);
 	GetDlgItem(EDIT_PATH_DEST)->GetWindowText((LPSTR)m_pEnforceSet->cDestPath, 128);
@@ -362,6 +435,7 @@ void CKistAnprAppDlg::SaveSettings()
 
 void CKistAnprAppDlg::OnBnClickedCntClear()
 {
+	m_pKistAnprClass->nTotalCount = 0;
 	m_pKistAnprClass->nPassCount = 0;
 	m_pKistAnprClass->nFailCount = 0;
 

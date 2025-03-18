@@ -23,10 +23,18 @@ public:
 private:
 	KistAnprClass* m_pKistAnprClass;
 	BOOL	bIsFirst;
+	BOOL	bProgressIng;
+	int		nPgsValue;
+
+	CWinThread* ptrTrhead0;
+	bool thread_InspectionMode_Threading;
 
 public:
+	void	Retry_InspectionMode();
 	void	WriteLogMessage(char* pLogData);
 	void	SaveSettings();
+	
+	static UINT thread_InspectionMode(LPVOID _mothod);
 
 	protected:
 	virtual void DoDataExchange(CDataExchange* pDX);	// DDX/DDV 지원입니다.
@@ -60,4 +68,5 @@ public:
 	afx_msg void OnSelchangeComboMode();
 	CComboBox m_combo_mode;
 	afx_msg void OnBnClickedCntClear();
+	CProgressCtrl m_Progress;
 };

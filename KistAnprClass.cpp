@@ -1,17 +1,11 @@
 #include "KistAnprClass.h"
 #include "turbojpeg.h"
 
-//#include <iostream>
-//#include <opencv2/opencv.hpp>
-//using namespace std;
-//using namespace cv;
-
 #define	FILE_MAX_SIZE	2000000
-//#define IMAGE_MAX_SIZE	500000
-#define IMAGE_MAX_SIZE	1500*1400*3
+#define IMAGE_MAX_SIZE	1500 * 1400 * 3
 
-#define ImageWidth  2500
-#define ImageHeight 2200
+#define ImageWidth  1500
+#define ImageHeight 1400
 
 typedef struct _RECOG_PROC
 {
@@ -103,9 +97,11 @@ KistAnprClass::KistAnprClass(LPVOID set, LPVOID pManage)
 	detector4 = new PLATEDetector(helmetPath, cv::Size(320, 320), is_GPU);
 	detector_test = new PLATEDetector(detPath, cv::Size(640, 640), is_GPU);
 
-	RawToBmpRotationDataBuf = new BYTE[1500 * 1400];
+	RawToBmpRotationDataBuf = new BYTE[1500 * 1400 * 3];
 
-	nPassCount = 0, nFailCount = 0;
+	nTotalCount = 0, nPassCount = 0, nFailCount = 0;
+
+	temp_idx = 0;
 }
 
 
@@ -160,9 +156,6 @@ void KistAnprClass::Anpr_Proc_Normal()
 			}
 
 			exist = FALSE;
-
-			//PassCount++;
-			//((CButton*)GetDlgItem(EDIT_PASS_CNT))->SetWindowText(PassCount);
 		}
 	}
 }
@@ -208,6 +201,24 @@ void KistAnprClass::Anpr_Proc_Inspection()
 		}
 	}
 
+	//처리중인 폴더의 총 파일 수
+	int count = 0;
+	for (int i = 0; i < index; i++)
+	{		
+		BOOL bWorking = finder.FindFile(FullFoldName_ori[i] + "/*.*");
+		while (bWorking)
+		{
+			bWorking = finder.FindNextFile();
+			if (finder.IsDots())
+				continue;
+			count++;
+		}
+		finder.Close();
+	}	
+	nTotalCount += count;
+	if (count == 0)
+		nTotalCount = 0;
+
 	for (int i = 0; i < index; i++)
 	{
 		SetCurrentDirectory(FullFoldName_ori[i]);
@@ -251,6 +262,36 @@ void KistAnprClass::Anpr_Proc_Inspection()
 	}
 }
 
+void KistAnprClass::CalculAngle(std::vector<KIST_res>* outputs)
+{
+	for (KIST_res& res : *outputs)
+	{
+		if (res.word_inf.size() > 5)
+		{
+			int min_x = 10000, min_y = 10000;
+			int max_x = -10000, max_y = -10000;
+
+			for (Plate_Info plf : res.word_inf)
+			{
+				if (min_x > plf.box.x)
+				{
+					min_x = plf.box.x + plf.box.width / 2;
+					min_y = plf.box.y + plf.box.height / 2;
+				}
+				if (max_x < plf.box.x)
+				{
+					max_x = plf.box.x + plf.box.width / 2;
+					max_y = plf.box.y + plf.box.height / 2;
+				}
+			}
+			double dx = max_x - min_x;
+			double dy = max_y - min_y;
+			double angle = std::atan2(dy, dx) * 180.0 / CV_PI;
+			res.plate_angle = abs(angle);
+		}
+	}
+}
+
 
 BOOL KistAnprClass::LoadDataFile_NEW(CString strFileName_Ori, CString strFileName_Dest, CString strFileName_Exception)
 {
@@ -259,8 +300,8 @@ BOOL KistAnprClass::LoadDataFile_NEW(CString strFileName_Ori, CString strFileNam
 	CFile fp;
 	LONG nFileSize = 0;
 
-	char logMessage[128];
-	char DisplayMsg[128];
+	char logMessage[256];
+	char DisplayMsg[256];
 	char JpgFileName[256];
 	char cPartRecogFile[64];
 	int width = 0, height = 0, nchannels = 0;
@@ -354,8 +395,12 @@ BOOL KistAnprClass::LoadDataFile_NEW(CString strFileName_Ori, CString strFileNam
 		//read Jpg header
 		Read_JPG_Memory(nCarImgSz, CarImageBuf, width, height, nchannels);
 
+		char	cProgramFilePath[128];
+		GetCurrentDirectory(sizeof(cProgramFilePath), cProgramFilePath);
+
 		ZeroMemory(cPartRecogFile, sizeof(cPartRecogFile));
 		wsprintf(cPartRecogFile, "c://jpg");
+		cPartRecogFile[0] = cProgramFilePath[0];
 		CreateDirectory(cPartRecogFile, NULL);
 
 		ZeroMemory(JpgFileName, sizeof(JpgFileName));
@@ -368,6 +413,10 @@ BOOL KistAnprClass::LoadDataFile_NEW(CString strFileName_Ori, CString strFileNam
 			fclose(file);
 		}
 		//----------------------------------------------------//
+
+		//TEST
+		//width = 1400;
+		//height = 1800;
 
 		cv::Mat input_image0 = cv::imread(JpgFileName);
 		//cv::Mat input_image0(m_pEnforceSet->nImageHeight, m_pEnforceSet->nImageWidth, CV_8UC3, CarImageBuf);
@@ -426,7 +475,7 @@ BOOL KistAnprClass::LoadDataFile_NEW(CString strFileName_Ori, CString strFileNam
 			if (CopyFile(strFileName_Ori, strFileName_Exception, FALSE) != 0)
 				DeleteFile(strFileName_Ori);
 
-			wsprintf(DisplayMsg, "[NEW] ===== [FAIL] =====  차량번호인식 실패 !! : [%s]\n", (LPCTSTR)strFileName_Ori);
+			wsprintf(DisplayMsg, "[NEW] ===== [FAIL] =====  차량번호인식 실패 !! : [%s][%s]\n", (LPCTSTR)strFileName_Ori, &CarPlate[0]);
 			time(&lTime);
 			m_pFileManage->WriteRunnginLogMessage(lTime, DisplayMsg);
 			m_pFileManage->WriteFailLogMessage(lTime, DisplayMsg);
@@ -468,6 +517,9 @@ BOOL KistAnprClass::LoadDataFile_NEW(CString strFileName_Ori, CString strFileNam
 
 		BOOL conform_plate = FALSE;	//차량번호 일치 여부
 		BOOL conform_helmet = TRUE;	//헬멧 착용유무
+
+		//TEST
+		//conform_plate = TRUE;
 
 		for (KIST_res res : output)
 		{
@@ -577,14 +629,54 @@ BOOL KistAnprClass::LoadDataFile_NEW(CString strFileName_Ori, CString strFileNam
 			}
 		}
 		else if (conform_plate == TRUE)	//차량번호 일치
-		{						
-			nPassCount++;
+		{	
+			//번호판 기울기 값을 이용한 필터링 기능
+			if (m_pEnforceSet->nPlateAngle != 0 && output[0].plate_angle >= m_pEnforceSet->nPlateAngle)
+			{
+				nFailCount++;
 
-			if (CopyFile(strFileName_Ori, strFileName_Dest, FALSE) != 0)
-				DeleteFile(strFileName_Ori);
+				if (CopyFile(strFileName_Ori, strFileName_Exception, FALSE) != 0)
+					DeleteFile(strFileName_Ori);
 
-			wsprintf(DisplayMsg, "[NEW] Success... FileName :[%s], PlateNum:[%s]", 
-				(LPCTSTR)strFileName_Ori, oldNumber.c_str());
+				sprintf(DisplayMsg, "[NEW] ===== [FAIL] =====  FileName:[%s], Old:[%s] -> New:[%s], PLATE_ANGLE:[%.2f]",
+					(LPCTSTR)strFileName_Ori, oldNumber.c_str(), output[0].License.c_str(), output[0].plate_angle);
+
+				time(&lTime);
+				m_pFileManage->WriteFailLogMessage(lTime, DisplayMsg);
+
+				//Image File Save
+				if (m_pEnforceSet->nProtocolType == 1)
+				{
+					strFileName_Exception.Format("%s.jpg", strFileName_Exception);
+					file = fopen(strFileName_Exception, "wb");
+					if (file != NULL) {
+						fwrite(CarImageBuf, nCarImgSz, 1, file);
+						fclose(file);
+					}
+				}					
+				else if (m_pEnforceSet->nProtocolType == 2)
+				{
+					if (strFileName_Exception.Find("DAT") != -1)
+					{
+						strFileName_Exception.Replace("DAT", "jpg");		
+						file = fopen(strFileName_Exception, "wb");
+						if (file != NULL) {
+							fwrite(CarImageBuf, nCarImgSz, 1, file);
+							fclose(file);
+						}
+					}
+				}				
+			}
+			else
+			{
+				nPassCount++;
+
+				if (CopyFile(strFileName_Ori, strFileName_Dest, FALSE) != 0)
+					DeleteFile(strFileName_Ori);
+
+				wsprintf(DisplayMsg, "[NEW] Success... FileName :[%s], PlateNum:[%s]",
+					(LPCTSTR)strFileName_Ori, oldNumber.c_str());
+			}			
 		}
 		else //차량번호 미일치
 		{			
@@ -599,7 +691,7 @@ BOOL KistAnprClass::LoadDataFile_NEW(CString strFileName_Ori, CString strFileNam
 			time(&lTime);
 			m_pFileManage->WriteFailLogMessage(lTime, DisplayMsg);
 
-			//Image File Save
+			//Image File Save			
 			if (m_pEnforceSet->nProtocolType == 1)
 			{
 				strFileName_Exception.Format("%s.jpg", strFileName_Exception);
@@ -608,19 +700,19 @@ BOOL KistAnprClass::LoadDataFile_NEW(CString strFileName_Ori, CString strFileNam
 					fwrite(CarImageBuf, nCarImgSz, 1, file);
 					fclose(file);
 				}
-			}
+			}				
 			else if (m_pEnforceSet->nProtocolType == 2)
 			{
 				if (strFileName_Exception.Find("DAT") != -1)
 				{
-					strFileName_Exception.Replace("DAT", "jpg");
+					strFileName_Exception.Replace("DAT", "jpg");					
 					file = fopen(strFileName_Exception, "wb");
 					if (file != NULL) {
 						fwrite(CarImageBuf, nCarImgSz, 1, file);
 						fclose(file);
 					}
 				}				
-			}			
+			}
 		}
 
 		time(&lTime);
@@ -645,7 +737,7 @@ BOOL KistAnprClass::LoadDataFile_NEW(CString strFileName_Ori, CString strFileNam
 
 void KistAnprClass::OLD_Plate_Init(int index)
 {
-	rp.source_img = cmatrix(ImageWidth, ImageWidth);
+	rp.source_img = cmatrix(ImageWidth, ImageWidth * 3);
 	rp.f_img = cmatrix(ImageWidth, ImageHeight);
 	rp.cut_img = cmatrix(ImageWidth, ImageHeight);
 	rp.tmp_img = cmatrix(ImageWidth + 400, ImageHeight + 400);   //motion
@@ -766,17 +858,22 @@ BOOL KistAnprClass::LoadDataFile_OLD(CString strFileName_Ori, CString strFileNam
 		////Color to Gray
 		//conv_color2grayOne(CarImageBuf_BMP, CarImageBuf_RAW, 1500, 1400);		
 		
+		char	cProgramFilePath[128];
+		GetCurrentDirectory(sizeof(cProgramFilePath), cProgramFilePath);
+
 		ZeroMemory(cPartRecogFile, sizeof(cPartRecogFile));
 		wsprintf(cPartRecogFile, "c://jpg");
+		cPartRecogFile[0] = cProgramFilePath[0];
 		CreateDirectory(cPartRecogFile, NULL);
 
 		ZeroMemory(BmpFileName, sizeof(BmpFileName));
 		wsprintf(BmpFileName, "%s/0000.jpg", cPartRecogFile);
+		//wsprintf(BmpFileName, "%s/jpg/%04d.jpg", cPartRecogFile, temp_idx++);
 		file = fopen(BmpFileName, "wb");
 		if (file != NULL) {
 			fwrite(CarImageBuf, nCarImgSz, 1, file);
 			fclose(file);
-		}
+		}		
 
 		//TEST
 		cv::Mat img1 = cv::imread(BmpFileName);
@@ -785,6 +882,7 @@ BOOL KistAnprClass::LoadDataFile_OLD(CString strFileName_Ori, CString strFileNam
 		//cv::imshow("111", img2);
 		//cv::waitKey();
 		//cv::destroyAllWindows();
+		// 
 		int width = img2.cols;
 		int height = img2.rows;
 		int bpp = img2.channels();
@@ -793,26 +891,52 @@ BOOL KistAnprClass::LoadDataFile_OLD(CString strFileName_Ori, CString strFileNam
 		std::vector<int> params_jpg;
 		params_jpg.push_back(cv::IMWRITE_JPEG_QUALITY);
 		params_jpg.push_back(95);
-		cv::imwrite(BmpFileName, img2, params_jpg);	//흑백 JPG 저장		
+		//wsprintf(BmpFileName, "%s/jpg/%04d.jpg", cPartRecogFile, temp_idx++);
+		cv::imwrite(BmpFileName, img2, params_jpg);	//흑백 JPG 저장
 
-		FILE* fp = fopen(BmpFileName, "rb");
-		fseek(fp, 0, SEEK_END);
-		nCarImgSz = ftell(fp);
-		fclose(fp);
+		//DeleteFile(strFileName_Ori);
+		//return FALSE;
 
-		FILE* fp1 = fopen(BmpFileName, "rb");
-		int totalFileSize = fread(CarImageBuf, sizeof(char), nCarImgSz, fp1);
-		fclose(fp);
+		//FILE* fp = fopen(BmpFileName, "rb");
+		//fseek(fp, 0, SEEK_END);
+		//nCarImgSz = ftell(fp);
+		//fclose(fp);
 
-		Read_JPG_Raw_Memory(nCarImgSz, CarImageBuf, width, height, CarImageBuf_RAW, nchannels);
+		//FILE* fp1 = fopen(BmpFileName, "rb");
+		//int totalFileSize = fread(CarImageBuf, sizeof(char), nCarImgSz, fp1);
+		//fclose(fp);
 
-		//이 부분 검증 필요함.
-		if (m_pEnforceSet->nProtocolType == 1)
-			nchannels = 1;
+		//Read_JPG_Raw_Memory(nCarImgSz, CarImageBuf, width, height, CarImageBuf_RAW, nchannels);
+
+		////이 부분 검증 필요함.
+		//if (m_pEnforceSet->nProtocolType == 1)
+		//	nchannels = 1;
+
+		cv::Mat matImg;
+		matImg = cv::imdecode(cv::Mat(1, nCarImgSz, CV_8UC1, CarImageBuf), cv::IMREAD_GRAYSCALE);
+		width = matImg.cols;
+		height = matImg.rows;
+		bpp = matImg.channels();
+		imagesize = width * height * bpp;
+		//cv::imshow("111", matImg);
+		//cv::waitKey();
+		//cv::destroyAllWindows();
+		nchannels = 1;
 
 		int sizea = 0;
-		Convert_RawToBmp(CarImageBuf_RAW, width, height, 8 * nchannels, CarImageBuf_BMP, sizea);
+		Convert_RawToBmp(matImg.data, width, height, 8 * nchannels, CarImageBuf_BMP, sizea);
+		//Convert_RawToBmp(CarImageBuf_RAW, width, height, 8 * nchannels, CarImageBuf_BMP, sizea);
 		//Convert_RawToBmp(img2.data, width, height, 8 * bpp, CarImageBuf_BMP, sizea);
+
+		//TEST
+		//cv::Mat matImg2 (height, width, CV_8UC3, CarImageBuf_BMP);
+		//width = matImg2.cols;
+		//height = matImg2.rows;
+		//bpp = matImg2.channels();
+		//imagesize = width * height * bpp;
+		//cv::imshow("222", matImg2);
+		//cv::waitKey();
+		//cv::destroyAllWindows();
 
 		ZeroMemory(BmpFileName, sizeof(BmpFileName));
 		wsprintf(BmpFileName, "%s/0000.bmp", cPartRecogFile);
@@ -822,11 +946,18 @@ BOOL KistAnprClass::LoadDataFile_OLD(CString strFileName_Ori, CString strFileNam
 			fclose(file);
 		}
 
+		//cv::rotate(matImg, matImg, cv::ROTATE_180);
+		//cv::flip(matImg, matImg, 1);
+		//cv::imwrite(BmpFileName, matImg);
+
 		//if (tGetBMP(BmpFileName, rp.w, rp.h, rp.source_img) != 0)
 		get_image(BmpFileName, &rp.w, &rp.h, rp.source_img);
-		//ZeroMemory(&rp.source_img[0], nCarImgSz);
-		//CopyMemory(&rp.source_img[0], CarImageBuf_RAW, nCarImgSz);
+		//ZeroMemory(rp.source_img[0], width * height);
+		//CopyMemory(rp.source_img[0], matImg.data, width * height);
+		//tGetBMP(BmpFileName, rp.w, rp.h, rp.source_img);
 		{
+			rp.w = width;
+			rp.h = height;
 			rp.avr_w = 156;
 			rp.FIND_R.left = 0;
 			rp.FIND_R.top = 0;
@@ -948,10 +1079,17 @@ BOOL KistAnprClass::LoadDataFile_OLD(CString strFileName_Ori, CString strFileNam
 
 		if (file != NULL)
 			fclose(file);
-
-		DeleteFile(BmpFileName);
 	}
 }
+
+
+//BITMAP KistAnprClass::GetBitMap(cv::Mat inputImage)
+//{
+//	cv::Size size = inputImage.size();
+//	BITMAP bitmap(size.width, size.height, inputImage.step1(), PixelFormat24bppRGB, inputImage.data);
+//
+//	return bitmap;
+//}
 
 
 void KistAnprClass::CreateBitmapInfo(int w, int h, int bpp)
@@ -1156,8 +1294,9 @@ std::vector<KIST_res> KistAnprClass::KIST_Detection(PLATEDetector* detector0, PL
 		}
 	}
 
-	return output;
+	CalculAngle(&output);
 
+	return output;
 }
 
 

@@ -38,6 +38,7 @@ struct KIST_res
 	std::vector<Plate_Info> word_inf;  // word, conf, box[4] for every words	
 	std::vector<Helmet_Info> helmet_inf;
 	double avg_pixel[3];
+	double plate_angle = -1;
 };
 
 struct KIST_res2
