@@ -52,6 +52,23 @@ BOOL CKistAnprAppApp::InitInstance()
 
 	CWinApp::InitInstance();
 
+	// 중복실행 방지
+	HANDLE hMutex = NULL;
+
+	hMutex = CreateMutex(NULL, FALSE, _T("TopesANPR"));
+	if (NULL == hMutex)
+	{
+		MessageBox(NULL, _T("Mutex 생성 실패 - 프로그램을 종료합니다."), _T("TopesANPR"), MB_OK);
+		return FALSE;
+	}
+
+	if (GetLastError() == ERROR_ALREADY_EXISTS)
+	{
+		CloseHandle(hMutex);
+		hMutex = INVALID_HANDLE_VALUE;
+		MessageBox(NULL, _T("프로그램이 이미 실행 중입니다."), _T("TopesANPR"), MB_OK);
+		return FALSE;
+	}
 
 	AfxEnableControlContainer();
 

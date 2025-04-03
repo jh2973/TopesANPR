@@ -174,8 +174,8 @@ void CKistAnprAppDlg::OnTimer(UINT_PTR nIDEvent)
 		}
 
 		char	cResultPass[8], cResultFail[8];
-		wsprintf(cResultPass, "%d대", m_pKistAnprClass->nPassCount);
-		wsprintf(cResultFail, "%d대", m_pKistAnprClass->nFailCount);
+		wsprintf(cResultPass, "%d", m_pKistAnprClass->nPassCount);
+		wsprintf(cResultFail, "%d", m_pKistAnprClass->nFailCount);
 
 		((CButton*)GetDlgItem(EDIT_PASS_CNT))->SetWindowText(cResultPass);
 		((CButton*)GetDlgItem(EDIT_FAIL_CNT))->SetWindowText(cResultFail);
@@ -440,8 +440,8 @@ void CKistAnprAppDlg::OnBnClickedCntClear()
 	m_pKistAnprClass->nFailCount = 0;
 
 	char	cResultPass[8], cResultFail[8];
-	wsprintf(cResultPass, "%d대", m_pKistAnprClass->nPassCount);
-	wsprintf(cResultFail, "%d대", m_pKistAnprClass->nFailCount);
+	wsprintf(cResultPass, "%d", m_pKistAnprClass->nPassCount);
+	wsprintf(cResultFail, "%d", m_pKistAnprClass->nFailCount);
 
 	((CButton*)GetDlgItem(EDIT_PASS_CNT))->SetWindowText(cResultPass);
 	((CButton*)GetDlgItem(EDIT_FAIL_CNT))->SetWindowText(cResultFail);
